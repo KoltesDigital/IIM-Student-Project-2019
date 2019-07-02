@@ -10,12 +10,17 @@
 
 #include <SocketIoClient.h>
 
+#include <Wire.h>
+#include <SparkFun_VL53L1X.h>
+
 static WiFiManager wifiManager;
 static SocketIoClient webSocket;
 
-static constexpr int ledPin = 6;
+static constexpr int ledPin = D5;
 static constexpr int ledCount = 1;
 static Adafruit_NeoPixel ledStrip(ledCount, ledPin, NEO_GRB + NEO_KHZ800);
+
+static SFEVL53L1X distanceSensor;
 
 static void setColorHandler(const char *payload, size_t)
 {
@@ -61,6 +66,14 @@ void setup()
 	ledStrip.begin();
 	ledStrip.show();
 
+	Wire.begin();
+	// Wire.setClock(400000); // use 400 kHz I2C
+
+	if (distanceSensor.begin())
+	{
+		Serial.println("Distance sensor connected!");
+	}
+
 	// Nom et mot de passe du réseau WiFi.
 	wifiManager.autoConnect("Linko", "SuperPassword");
 
@@ -73,4 +86,10 @@ void setup()
 void loop()
 {
 	webSocket.loop();
+
+	distanceSensor.startRanging();
+	int distance = distanceSensor.getDistance();
+	distanceSensor.stopRanging();
+
+	Serial.println(distance);
 }
