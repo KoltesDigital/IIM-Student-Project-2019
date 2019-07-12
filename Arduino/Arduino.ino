@@ -7,14 +7,23 @@
 
 // CONFIGURATION START
 
-// Period between measurements.
-static constexpr int distanceSensorDelay = 100; // milliseconds
+// Delay between measurements.
+static constexpr int distanceMeasurementPeriod = 100; // milliseconds
 
 // Below this distance, a hand is detected.
 static constexpr int handDetectionThreshold = 120; // millimeters
 
 // LED strip data signal.
 static constexpr int ledPin = D5;
+
+// Minimum value for light wave.
+static constexpr int lightIntensityMin = 60; // [0, 255]
+
+// Maximum value for light wave.
+static constexpr int lightIntensityMax = 255; // [0, 255]
+
+// Delay between led updates.
+static constexpr int lightUpdatePeriod = 10; // milliseconds
 
 // Server hostname or IP address.
 static constexpr const char *serverHost = "localhost";
@@ -34,11 +43,25 @@ static constexpr uint8_t distanceSensorAddress = 0x29;
 
 static SFEVL53L1X distanceSensor;
 static Adafruit_NeoPixel ledStrip(ledCount, ledPin, NEO_GRB + NEO_KHZ800);
-static SocketIoClient webSocket;
+static SocketIoClient socket;
 
-static void setColorHandler(const char *payload, size_t)
+static bool stateHandDetected = false;
+static bool stateLight = false;
+
+static int distanceMeasurementTimer = 0;
+
+static int lightIntensity = 0;
+static bool lightDesc = false;
+static int lightUpdateTimer = 0;
+
+static void connectHandler(const char *payload, size_t)
 {
-	Serial.println("Got message for setting color.");
+	socket.emit(stateHandDetected ? "handDetected" : "handLost");
+}
+
+static void setLightHandler(const char *payload, size_t)
+{
+	Serial.println("Got message for setting light.");
 
 	constexpr int capacity = JSON_OBJECT_SIZE(1) + JSON_ARRAY_SIZE(3);
 	StaticJsonDocument<capacity> doc;
@@ -51,28 +74,22 @@ static void setColorHandler(const char *payload, size_t)
 	}
 	else
 	{
-		auto colorNode = doc.as<JsonArray>();
-		if (colorNode.size() != 3)
+		if (!doc.is<bool>())
 		{
 			Serial.println("Invalid data.");
 		}
 		else
 		{
-			auto r = colorNode[0].as<int>();
-			auto g = colorNode[1].as<int>();
-			auto b = colorNode[2].as<int>();
+			stateLight = doc.as<bool>();
 
-			Serial.print("Set color to: ");
-			Serial.print(r);
-			Serial.print(", ");
-			Serial.print(g);
-			Serial.print(", ");
-			Serial.print(b);
+			Serial.print("Set light: ");
+			Serial.print(stateLight);
 			Serial.println(".");
 
-			// Mise à jour de la couleur des leds.
-			ledStrip.setPixelColor(0, r, g, b);
-			ledStrip.show();
+			if (stateLight)
+			{
+				lightDesc = false;
+			}
 		}
 	}
 }
@@ -112,8 +129,9 @@ void setup()
 
 	// Web socket setup.
 
-	webSocket.on("setColor", setColorHandler);
-	webSocket.begin(serverHost, serverPort);
+	socket.on("connect", connectHandler);
+	socket.on("setLight", setLightHandler);
+	socket.begin(serverHost, serverPort);
 
 	// LED strip setup.
 
@@ -123,16 +141,13 @@ void setup()
 	Serial.println("Setup done!");
 }
 
-static int sensorTimer = 0;
-static bool handDetected = false;
-
 void loop()
 {
-	webSocket.loop();
+	socket.loop();
 
-	if (sensorTimer == 0)
+	if (distanceMeasurementTimer == 0)
 	{
-		sensorTimer = distanceSensorDelay;
+		distanceMeasurementTimer = distanceMeasurementPeriod;
 
 		distanceSensor.startRanging();
 		int distance = distanceSensor.getDistance();
@@ -174,24 +189,63 @@ void loop()
 
 		auto newHandDetected = (distance <= handDetectionThreshold);
 
-		if (newHandDetected && !handDetected)
+		if (newHandDetected && !stateHandDetected)
 		{
 			Serial.println("Hand detected.");
-			webSocket.emit("handDetected");
+			socket.emit("handDetected");
 		}
 
-		if (!newHandDetected && handDetected)
+		if (!newHandDetected && stateHandDetected)
 		{
 			Serial.println("Hand lost.");
-			webSocket.emit("handLost");
+			socket.emit("handLost");
 		}
 
-		handDetected = newHandDetected;
+		stateHandDetected = newHandDetected;
 	}
 	else
 	{
-		--sensorTimer;
+		--distanceMeasurementTimer;
 	}
+
+	if (lightUpdateTimer == 0)
+	{
+		lightUpdateTimer = lightUpdatePeriod;
+
+		if (stateLight)
+		{
+			if (lightDesc)
+			{
+				--lightIntensity;
+				if (lightIntensity <= lightIntensityMin)
+				{
+					lightDesc = false;
+				}
+			}
+			else
+			{
+				++lightIntensity;
+				if (lightIntensity >= lightIntensityMax)
+				{
+					lightDesc = true;
+				}
+			}
+		}
+		else
+		{
+			if (lightIntensity > 0)
+			{
+				--lightIntensity;
+			}
+		}
+	}
+	else
+	{
+		--lightUpdateTimer;
+	}
+
+	ledStrip.setPixelColor(0, lightIntensity, 0, 0);
+	ledStrip.show();
 
 	delay(1);
 	ESP.wdtFeed();

@@ -3,15 +3,54 @@ const socketIO = require("socket.io");
 
 // CONFIGURATION START
 
+// Server port.
+const serverPort = 3000;
+
 const designs = {
-	"e13f9196-df52-4862-4e34-cdea5387d4b4-970e": {
+	"839633a7-d6da-4c4f-50e3-44fafddbdfe2-f5a7": {
 		homePage: {
 			log: "Home page."
 		},
 		pages: {
-			"17c8f802-465e-4150-86e5-08ce019832e5": {
-				color: [255, 0, 0],
-				log: "Commande de pain."
+			"86206a3d-f211-41f4-aad1-910ada5dad3c": {
+				light: true,
+				log: "Du pain a été commandé !"
+			},
+			"890b050a-5be1-4083-9c80-0d00354ac62a": {
+				light: false,
+				log: "La demande du pain a été annulé !"
+			},
+			"f8fa857d-46f7-4891-a101-42e1e6decfbf": {
+				light: true,
+				log: "De l’eau a été demandé !"
+			},
+			"652af495-1693-4a57-9567-84a9a44ab9bf": {
+				light: false,
+				log: "La demande d’eau a été annulé !"
+			},
+			"e504ea3d-b370-4455-bb5d-940545744da7": {
+				light: true,
+				log: "Le serveur a été demandé !"
+			},
+			"dc60e719-afec-46a6-893f-cd4a0d91166f": {
+				light: false,
+				log: "L’appel du serveur a été annulé !"
+			},
+			"b9be37b5-effb-44bb-bd65-43e3c3d109df": {
+				light: true,
+				log: "La table N°10 souhaite payer l’addition en espèces !"
+			},
+			"01d5963c-afdd-4b73-8a7d-cc62c0cffcd6": {
+				light: false,
+				log: "La table N°10 ne souhaite plus payer l’addition en espèces !"
+			},
+			"11c17e63-819b-45b5-8930-0c711b1b2260": {
+				light: true,
+				log: "La table N°10 souhaite payer l’addition en carte bleu !"
+			},
+			"70a650bb-18aa-4f9b-b754-e17c1701c7b6": {
+				light: false,
+				log: "La table N°10 ne souhaite plus payer l’addition en carte bleu !"
 			}
 		}
 	}
@@ -20,7 +59,8 @@ const designs = {
 // CONFIGURATION END
 
 const state = {
-	color: [0, 0, 0]
+	handDetected: false,
+	light: false
 };
 
 const pathRegexp = /^\/embed\/([\w\-]+)\/(?:screen\/([\w\-]+)\/.*)?$/;
@@ -33,15 +73,18 @@ io.on("connection", client => {
 		`New connection from ${client.request.connection.remoteAddress}.`
 	);
 
-	client.emit("setColor", state.color);
+	client.emit(state.handDetected ? "handDetected" : "handLost");
+	client.emit("setLight", state.light);
 
 	client.on("handDetected", () => {
 		console.log("Hand detected.");
+		state.handDetected = true;
 		client.broadcast.emit("handDetected");
 	});
 
 	client.on("handLost", () => {
 		console.log("Hand lost.");
+		state.handDetected = false;
 		client.broadcast.emit("handLost");
 	});
 
@@ -59,17 +102,14 @@ io.on("connection", client => {
 
 					const page = pageId === null ? design.homePage : design.pages[pageId];
 					if (page) {
-						if (page.log) {
+						if (typeof page.log !== "undefined") {
 							console.log(page.log);
 						}
 
-						if (page.color) {
-							state.color = page.color;
-							io.emit("setColor", state.color);
-						}
-
-						if (page.action) {
-							page.action();
+						if (typeof page.light !== "undefined") {
+							state.light = page.light;
+							console.log(`Set light: ${state.light}.`);
+							io.emit("setLight", state.light);
 						}
 					}
 				}
@@ -78,7 +118,6 @@ io.on("connection", client => {
 	});
 });
 
-const port = 3000;
-server.listen(port, () => {
-	console.log(`Server listening on port ${port}.`);
+server.listen(serverPort, () => {
+	console.log(`Server listening on port ${serverPort}.`);
 });
